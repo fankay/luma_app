@@ -19,6 +19,7 @@ struct ContentView: View {
     @State private var appeared = false
     @State private var targeted = false
     @State private var showOriginal = false
+    @State private var previewZoom: CGFloat = 1
     var body: some View {
         HStack(spacing: 0) {
             sidebar.frame(width: 218)
@@ -36,6 +37,7 @@ struct ContentView: View {
         .opacity(appeared ? 1 : 0).offset(y: appeared ? 0 : 12)
         .onAppear { withAnimation(reduceMotion ? nil : .easeOut(duration: 0.65)) { appeared = true } }
         .onChange(of: model.mode) { _, _ in showOriginal = false; model.prepareBackgrounds() }
+        .onChange(of: model.current?.id) { _, _ in previewZoom = 1; showOriginal = false }
         .onDrop(of: [.fileURL], isTargeted: $targeted) { providers in
             guard !model.running else { return false }
             for provider in providers { _ = provider.loadObject(ofClass: URL.self) { url, _ in if let url { Task { @MainActor in model.add([url]) } } } }
@@ -77,10 +79,10 @@ struct ContentView: View {
     var preview: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 18).fill(Color.white.opacity(0.035))
-            if let item = model.current, let image = item.thumbnail {
+            if let item = model.current, item.thumbnail != nil {
                 let isCutout = model.mode == .removeBackground && item.cutoutPreview != nil && !showOriginal
                 if isCutout { TransparencyGrid().clipShape(RoundedRectangle(cornerRadius: 18)) }
-                Image(nsImage: isCutout ? (item.cutoutPreview ?? image) : image).resizable().scaledToFit().padding(35)
+                ZoomablePreview(itemID: item.id, url: item.url, cutout: isCutout ? item.cutout : nil, zoom: $previewZoom)
                 VStack {
                     HStack {
                         badge(isCutout ? "透明预览" : "原图预览")
@@ -90,7 +92,26 @@ struct ContentView: View {
                         }
                         badge(isCutout ? "PNG · 透明" : item.url.pathExtension.uppercased())
                     }
-                    Spacer(); HStack { badge(item.dimensions); Spacer() }
+                    Spacer()
+                    HStack {
+                        badge(item.dimensions)
+                        Spacer()
+                        HStack(spacing: 10) {
+                            Button { previewZoom = max(PreviewViewport.zoomRange.lowerBound, previewZoom / 1.25) } label: { Image(systemName: "minus.magnifyingglass") }
+                                .help("缩小").accessibilityLabel("缩小图片").disabled(previewZoom <= PreviewViewport.zoomRange.lowerBound)
+                            Text("\(Int((previewZoom * 100).rounded()))%")
+                                .font(.system(size: 10, design: .monospaced)).frame(minWidth: 40)
+                                .accessibilityLabel("相对适应窗口缩放 \(Int((previewZoom * 100).rounded()))%")
+                            Button { previewZoom = min(PreviewViewport.zoomRange.upperBound, previewZoom * 1.25) } label: { Image(systemName: "plus.magnifyingglass") }
+                                .help("放大").accessibilityLabel("放大图片").disabled(previewZoom >= PreviewViewport.zoomRange.upperBound)
+                            Divider().frame(height: 12)
+                            Button { previewZoom = 1 } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
+                                .help("重置为适应窗口").accessibilityLabel("重置图片缩放")
+                        }
+                        .buttonStyle(.plain).font(.system(size: 13))
+                        .padding(.horizontal, 12).padding(.vertical, 8)
+                        .background(.black.opacity(0.7), in: Capsule())
+                    }
                 }.padding(16)
             } else {
                 VStack(spacing: 17) {
@@ -110,6 +131,7 @@ struct ContentView: View {
                 VStack(spacing: 14) { ProgressView().controlSize(.large); Text(model.removingBackground ? "正在识别主体，细致分离背景…" : "正在精心处理每一个像素…").font(.system(size: 12)) }.padding(24).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18))
             }
         }.frame(maxWidth: .infinity).frame(height: 310)
+            .clipShape(RoundedRectangle(cornerRadius: 18))
             .overlay(RoundedRectangle(cornerRadius: 18).stroke(.white.opacity(0.07), lineWidth: 1))
     }
     var fileList: some View {

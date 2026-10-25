@@ -5,6 +5,7 @@ CLANG_MODULE_CACHE_PATH=/tmp/luma-module-cache SWIFTPM_MODULECACHE_OVERRIDE=/tmp
 bash scripts/build-icon.sh
 mkdir -p build/Luma.app/Contents/MacOS build/Luma.app/Contents/Resources
 cp Assets/AppIcon.icns build/Luma.app/Contents/Resources/AppIcon.icns
+cp LICENSE build/Luma.app/Contents/Resources/LICENSE
 cp /tmp/luma-release/release/Luma build/Luma.app/Contents/MacOS/Luma
 cat > build/Luma.app/Contents/Info.plist <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -15,8 +16,8 @@ cat > build/Luma.app/Contents/Info.plist <<'PLIST'
 <key>CFBundleName</key><string>Luma</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>1.0.0</string>
-<key>CFBundleVersion</key><string>1</string>
+<key>CFBundleShortVersionString</key><string>1.1.0</string>
+<key>CFBundleVersion</key><string>2</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
