@@ -8,7 +8,10 @@ import UniformTypeIdentifiers
             ContentView().environmentObject(model).preferredColorScheme(.dark)
                 .frame(minWidth: 1000, minHeight: 680)
         }.windowStyle(.hiddenTitleBar).defaultSize(width: 1220, height: 800)
-            .commands { CommandGroup(replacing: .newItem) { Button("添加图片…") { model.chooseImages() }.keyboardShortcut("o").disabled(model.running) } }
+            .commands {
+                CommandGroup(replacing: .newItem) { Button("添加图片…") { model.chooseImages() }.keyboardShortcut("o").disabled(model.running) }
+                CommandGroup(replacing: .pasteboard) { Button("粘贴图片") { model.pasteImages() }.keyboardShortcut("v").disabled(model.running) }
+            }
     }
 }
 private let lime = Color(red: 0.78, green: 0.96, blue: 0.43)
@@ -73,6 +76,7 @@ struct ContentView: View {
                 Text("转换格式，精简体积，一键移除背景。") .font(.system(size: 12)).foregroundStyle(.gray)
             }
             Spacer()
+            Button { model.pasteImages() } label: { Label("粘贴图片", systemImage: "doc.on.clipboard").padding(.horizontal, 10).padding(.vertical, 7) }.buttonStyle(.bordered).disabled(model.running).help("从剪贴板粘贴图片（⌘V）")
             Button { model.chooseImages() } label: { Label("添加图片", systemImage: "plus").padding(.horizontal, 10).padding(.vertical, 7) }.buttonStyle(.bordered).disabled(model.running)
         }
     }
@@ -121,7 +125,7 @@ struct ContentView: View {
                         Image(systemName: "photo.on.rectangle.angled").font(.system(size: 34, weight: .light)).foregroundStyle(lime)
                     }
                     Text("把好照片，放进来。") .font(.system(size: 19, weight: .medium))
-                    Text("拖放图片到此处，或点击添加图片") .font(.system(size: 12)).foregroundStyle(.gray)
+                    Text("拖放图片、点击添加，或按 ⌘V 粘贴") .font(.system(size: 12)).foregroundStyle(.gray)
                     Text("HEIC  /  JPG  /  PNG  /  TIFF  /  更多") .font(.system(size: 9, design: .monospaced)).tracking(1).foregroundStyle(.gray.opacity(0.7))
                     Button("选择图片") { model.chooseImages() }.buttonStyle(.bordered).tint(lime)
                 }

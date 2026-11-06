@@ -23,6 +23,7 @@ struct ImageItem: Identifiable {
     @Published var copyingImage = false
     @Published var imageCopied = false
     private var copyFeedbackTask: Task<Void, Never>?
+    private let pastedDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("Luma-Paste-\(UUID().uuidString)", isDirectory: true)
     @Published var removingBackground = false
     @Published var completed = 0
     @Published var alert: String?
@@ -62,6 +63,31 @@ struct ImageItem: Identifiable {
         let panel = NSOpenPanel(); panel.allowedContentTypes = [.image]; panel.allowsMultipleSelection = true; panel.canChooseDirectories = false
         if panel.runModal() == .OK { add(panel.urls) }
     }
+    func pasteImages() {
+        guard !running else { return }
+        let board = NSPasteboard.general
+        let urls = (board.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? [])
+            .filter { CGImageSourceCreateWithURL($0 as CFURL, nil) != nil }
+        if !urls.isEmpty {
+            add(urls)
+            if let last = urls.last, let item = items.first(where: { $0.url == last }) { selected = item.id }
+            return
+        }
+        guard let data = board.data(forType: .png) ?? board.data(forType: .tiff),
+              let bitmap = NSBitmapImageRep(data: data),
+              let png = bitmap.representation(using: .png, properties: [:]) else {
+            alert = "剪贴板中没有可用的图片。请先复制图片或图片文件。"
+            return
+        }
+        do {
+            try FileManager.default.createDirectory(at: pastedDirectory, withIntermediateDirectories: true)
+            let url = pastedDirectory.appendingPathComponent("粘贴图片-\(UUID().uuidString.prefix(8)).png")
+            try png.write(to: url, options: .withoutOverwriting)
+            add([url])
+            selected = items.first(where: { $0.url == url })?.id
+        } catch { alert = "无法导入剪贴板图片：\(error.localizedDescription)" }
+    }
+    deinit { try? FileManager.default.removeItem(at: pastedDirectory) }
     func add(_ urls: [URL]) {
         guard !running else { return }
         for url in urls where !items.contains(where: { $0.url == url }) {
