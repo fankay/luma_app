@@ -128,7 +128,7 @@ struct ContentView: View {
             }
             if model.running {
                 RoundedRectangle(cornerRadius: 18).fill(.black.opacity(0.4))
-                VStack(spacing: 14) { ProgressView().controlSize(.large); Text(model.removingBackground ? "正在识别主体，细致分离背景…" : "正在精心处理每一个像素…").font(.system(size: 12)) }.padding(24).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18))
+                VStack(spacing: 14) { ProgressView().controlSize(.large); Text(model.copyingImage ? "正在准备剪贴板图片…" : model.removingBackground ? "正在识别主体，细致分离背景…" : "正在精心处理每一个像素…").font(.system(size: 12)) }.padding(24).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18))
             }
         }.frame(maxWidth: .infinity).frame(height: 310)
             .clipShape(RoundedRectangle(cornerRadius: 18))
@@ -220,12 +220,21 @@ struct ContentView: View {
     var footer: some View {
         HStack(spacing: 18) {
             VStack(alignment: .leading, spacing: 6) {
-                Text(model.running ? "正在处理 \(model.completed + 1) / \(model.items.count)" : model.completed > 0 ? "处理完成 · \(model.items.compactMap(\.result).count) 张已导出" : "为你的下一张好照片，准备就绪。") .font(.system(size: 12, weight: .medium))
+                Text(model.copyingImage ? "正在复制当前图片…" : model.running ? "正在处理 \(model.completed + 1) / \(model.items.count)" : model.completed > 0 ? "处理完成 · \(model.items.compactMap(\.result).count) 张已导出" : "为你的下一张好照片，准备就绪。") .font(.system(size: 12, weight: .medium))
                 if model.completed > 0 { Text(model.saved >= 0 ? "共节省 \(Workspace.bytes(model.saved))" : "输出增加 \(Workspace.bytes(-model.saved))").font(.system(size: 10)).foregroundStyle(lime) }
                 else { Text("原文件始终保留，所有操作均在本机完成") .font(.system(size: 10)).foregroundStyle(.gray) }
             }
             Spacer()
             if let folder = model.outputFolder, !model.running { Button { NSWorkspace.shared.open(folder) } label: { Image(systemName: "folder") }.buttonStyle(.bordered).help("打开导出文件夹") }
+            Button { model.copyImage() } label: {
+                Label(model.imageCopied ? "已复制" : model.copyingImage ? "复制中…" : "复制图片", systemImage: model.imageCopied ? "checkmark" : "doc.on.doc")
+                    .font(.system(size: 13, weight: .medium))
+                    .padding(.horizontal, 16).padding(.vertical, 14)
+                    .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 11))
+            }
+            .buttonStyle(.plain)
+            .disabled(!model.canCopyImage)
+            .help("将当前选中图片的处理结果复制到剪贴板")
             Button { model.export() } label: { HStack(spacing: 12) { Text(model.running ? "正在处理…" : model.mode == .removeBackground ? "导出透明 PNG" : "开始处理"); Image(systemName: "arrow.up.right") }.font(.system(size: 13, weight: .semibold)).foregroundStyle(base).padding(.horizontal, 26).padding(.vertical, 14).background(lime, in: RoundedRectangle(cornerRadius: 11)) }.buttonStyle(.plain).disabled(model.running || model.items.isEmpty).opacity(model.items.isEmpty ? 0.5 : 1)
         }.padding(.top, 10)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: model.running)

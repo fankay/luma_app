@@ -22,9 +22,15 @@ enum ImageFailure: LocalizedError {
 struct ImageEngine {
     static func size(_ url: URL) -> Int { (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0 }
     static func process(url: URL, folder: URL, format: OutputFormat, mode: ProcessingMode, quality: Double, preparedCutout: Data? = nil) throws -> ImageResult {
+        let result = try render(url: url, format: format, mode: mode, quality: quality, preparedCutout: preparedCutout)
+        return try save(result.data, source: url, folder: folder, ext: result.ext, suffix: result.suffix, note: result.note)
+    }
+
+    /// Shared by file export and clipboard so both use the current processing settings.
+    static func render(url: URL, format: OutputFormat, mode: ProcessingMode, quality: Double, preparedCutout: Data? = nil) throws -> (data: Data, ext: String, suffix: String, note: String) {
         if mode == .removeBackground {
             let output = try preparedCutout ?? removeBackground(url: url)
-            return try save(output, source: url, folder: folder, ext: "png", suffix: "-nobg", note: "背景已移除 · 透明 PNG")
+            return (output, "png", "-nobg", "背景已移除 · 透明 PNG")
         }
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil), let image = CGImageSourceCreateImageAtIndex(source, 0, nil), let sourceType = CGImageSourceGetType(source) else { throw ImageFailure.message("无法读取这张图片，文件可能已损坏。") }
         guard CGImageSourceGetCount(source) == 1 else { throw ImageFailure.message("暂不处理动画或多页图片，以免丢失帧或页面。") }
@@ -55,7 +61,7 @@ struct ImageEngine {
                 note = "已是最佳无损体积 · 保留原文件"
             } else { note = "像素校验通过 · 无损优化" }
         }
-        return try save(output, source: url, folder: folder, ext: ext, suffix: "-luma", note: note)
+        return (output, ext, "-luma", note)
     }
 
     /// Vision receives upright pixels, so rotated HEIC/JPEG files and their masks stay aligned.

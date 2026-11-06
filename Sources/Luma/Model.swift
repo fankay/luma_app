@@ -20,12 +20,44 @@ struct ImageItem: Identifiable {
     @Published var mode: ProcessingMode = .quality
     @Published var quality = 0.88
     @Published var running = false
+    @Published var copyingImage = false
+    @Published var imageCopied = false
+    private var copyFeedbackTask: Task<Void, Never>?
     @Published var removingBackground = false
     @Published var completed = 0
     @Published var alert: String?
     @Published var outputFolder: URL?
     var current: ImageItem? { items.first { $0.id == selected } ?? items.first }
     var saved: Int { items.compactMap(\.result).reduce(0) { $0 + $1.originalBytes - $1.outputBytes } }
+    var canCopyImage: Bool {
+        guard !running, let item = current else { return false }
+        return mode != .removeBackground || item.cutout != nil
+    }
+
+    func copyImage() {
+        guard canCopyImage, let item = current else { return }
+        let chosenMode = mode, chosenFormat = format, chosenQuality = quality
+        copyingImage = true; running = true; imageCopied = false
+        copyFeedbackTask?.cancel()
+        Task { [self] in
+            defer { copyingImage = false; running = false }
+            do {
+                let representations = try await Task.detached(priority: .userInitiated) {
+                    try autoreleasepool {
+                        let result = try ImageEngine.render(url: item.url, format: chosenFormat, mode: chosenMode, quality: chosenQuality, preparedCutout: item.cutout)
+                        return try ClipboardImage.representations(from: result.data)
+                    }
+                }.value
+                try ClipboardImage.write(representations)
+                imageCopied = true
+                copyFeedbackTask = Task { [weak self] in
+                    try? await Task.sleep(for: .seconds(2))
+                    guard !Task.isCancelled else { return }
+                    self?.imageCopied = false
+                }
+            } catch { alert = error.localizedDescription }
+        }
+    }
     func chooseImages() {
         let panel = NSOpenPanel(); panel.allowedContentTypes = [.image]; panel.allowsMultipleSelection = true; panel.canChooseDirectories = false
         if panel.runModal() == .OK { add(panel.urls) }
