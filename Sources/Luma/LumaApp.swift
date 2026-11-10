@@ -39,7 +39,7 @@ struct ContentView: View {
         .background(base)
         .opacity(appeared ? 1 : 0).offset(y: appeared ? 0 : 12)
         .onAppear { withAnimation(reduceMotion ? nil : .easeOut(duration: 0.65)) { appeared = true } }
-        .onChange(of: model.mode) { _, _ in showOriginal = false; model.prepareBackgrounds() }
+        .onChange(of: model.mode) { _, _ in showOriginal = false; model.prepareBackgrounds(); model.prepareWatermarks() }
         .onChange(of: model.current?.id) { _, _ in previewZoom = 1; showOriginal = false }
         .onDrop(of: [.fileURL], isTargeted: $targeted) { providers in
             guard !model.running else { return false }
@@ -85,16 +85,18 @@ struct ContentView: View {
             RoundedRectangle(cornerRadius: 18).fill(Color.white.opacity(0.035))
             if let item = model.current, item.thumbnail != nil {
                 let isCutout = model.mode == .removeBackground && item.cutoutPreview != nil && !showOriginal
+                let isCleaned = model.mode == .removeWatermark && item.watermarkPreview != nil && !showOriginal
                 if isCutout { TransparencyGrid().clipShape(RoundedRectangle(cornerRadius: 18)) }
-                ZoomablePreview(itemID: item.id, url: item.url, cutout: isCutout ? item.cutout : nil, zoom: $previewZoom)
+                ZoomablePreview(itemID: item.id, url: item.url, cutout: isCutout ? item.cutout : isCleaned ? item.watermarkResult : nil, zoom: $previewZoom)
+                    .id(model.mode)
                 VStack {
                     HStack {
-                        badge(isCutout ? "透明预览" : "原图预览")
+                        badge(isCutout ? "透明预览" : isCleaned ? "去水印预览" : "原图预览")
                         Spacer()
-                        if model.mode == .removeBackground, item.cutoutPreview != nil {
-                            Button(showOriginal ? "查看抠图" : "查看原图") { withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { showOriginal.toggle() } }.buttonStyle(.bordered).font(.system(size: 11))
+                        if (model.mode == .removeBackground && item.cutoutPreview != nil) || (model.mode == .removeWatermark && item.watermarkPreview != nil) {
+                            Button(showOriginal ? "查看处理结果" : "查看原图") { withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { showOriginal.toggle() } }.buttonStyle(.bordered).font(.system(size: 11))
                         }
-                        badge(isCutout ? "PNG · 透明" : item.url.pathExtension.uppercased())
+                        badge(isCutout ? "PNG · 透明" : isCleaned ? "PNG" : item.url.pathExtension.uppercased())
                     }
                     Spacer()
                     HStack {
@@ -197,8 +199,8 @@ struct ContentView: View {
             }
             VStack(alignment: .leading, spacing: 10) {
                 caption("02", "目标格式")
-                if model.mode == .removeBackground {
-                    Label("PNG · 透明背景", systemImage: "checkerboard.rectangle").font(.system(size: 13, weight: .semibold)).foregroundStyle(lime).padding(14).frame(maxWidth: .infinity, alignment: .leading).background(lime.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                if model.mode == .removeBackground || model.mode == .removeWatermark {
+                    Label(model.mode == .removeBackground ? "PNG · 透明背景" : "PNG · 修复结果", systemImage: "checkerboard.rectangle").font(.system(size: 13, weight: .semibold)).foregroundStyle(lime).padding(14).frame(maxWidth: .infinity, alignment: .leading).background(lime.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
                 } else {
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
                     ForEach(OutputFormat.allCases) { format in
@@ -209,13 +211,13 @@ struct ContentView: View {
                 }.disabled(model.mode == .lossless).opacity(model.mode == .lossless ? 0.35 : 1)
                 }
             }
-            if model.mode != .removeBackground {
+            if model.mode != .removeBackground && model.mode != .removeWatermark {
             VStack(alignment: .leading, spacing: 12) {
                 HStack { caption("03", "画质偏好"); Spacer(); Text("\(Int(model.quality * 100))%").font(.system(size: 11, design: .monospaced)).foregroundStyle(lime) }
                 Slider(value: $model.quality, in: 0.5...1).tint(lime).disabled(model.mode == .lossless || model.format == .png || model.format == .tiff)
                 HStack { Text("更小体积"); Spacer(); Text("更高画质") }.font(.system(size: 10)).foregroundStyle(.gray)
             }
-            } else if model.items.contains(where: { $0.cutout == nil && $0.error != nil }) {
+            } else if model.mode == .removeBackground && model.items.contains(where: { $0.cutout == nil && $0.error != nil }) {
                 Button("重新识别未成功的图片") { model.prepareBackgrounds() }
                     .buttonStyle(.bordered).font(.system(size: 10))
             }

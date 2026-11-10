@@ -11,7 +11,7 @@ enum OutputFormat: String, CaseIterable, Identifiable {
     var ext: String { self == .jpeg ? "jpg" : rawValue.lowercased() }
 }
 enum ProcessingMode: String, CaseIterable, Identifiable {
-    case quality = "高质量压缩", lossless = "严格无损", removeBackground = "移除背景"
+    case quality = "高质量压缩", lossless = "严格无损", removeBackground = "移除背景", removeWatermark = "去除水印"
     var id: String { rawValue }
 }
 struct ImageResult { let url: URL; let originalBytes: Int; let outputBytes: Int; let note: String }
@@ -28,6 +28,10 @@ struct ImageEngine {
 
     /// Shared by file export and clipboard so both use the current processing settings.
     static func render(url: URL, format: OutputFormat, mode: ProcessingMode, quality: Double, preparedCutout: Data? = nil) throws -> (data: Data, ext: String, suffix: String, note: String) {
+        if mode == .removeWatermark {
+            guard let data = preparedCutout else { throw ImageFailure.message("请先完成水印识别。") }
+            return (data, "png", "-clean", "水印处理完成 · PNG")
+        }
         if mode == .removeBackground {
             let output = try preparedCutout ?? removeBackground(url: url)
             return (output, "png", "-nobg", "背景已移除 · 透明 PNG")
@@ -76,16 +80,58 @@ struct ImageEngine {
         guard let pixels = context.createCGImage(upright, from: upright.extent) else {
             throw ImageFailure.message("无法读取图片像素，请尝试其他图片。")
         }
+        if let flat = removeFlatBackground(pixels) {
+            return try transparentPNG(CIImage(cgImage: flat), context: context)
+        }
         let handler = VNImageRequestHandler(cgImage: pixels, options: [:])
         let request = VNGenerateForegroundInstanceMaskRequest()
         do { try handler.perform([request]) }
         catch { throw ImageFailure.message("主体识别失败，请重试或更换图片。系统提示：\(error.localizedDescription)") }
         guard let observation = request.results?.first, !observation.allInstances.isEmpty else {
-            throw ImageFailure.message("未识别到清晰主体，请选择人物、宠物或商品更突出的图片。")
+            throw ImageFailure.message("未能识别主体或纯色背景，请尝试其他图片。")
         }
         // Keep all foreground subjects and the original canvas, including soft alpha edges.
         let buffer = try observation.generateMaskedImage(ofInstances: observation.allInstances, from: handler, croppedToInstancesExtent: false)
         return try transparentPNG(CIImage(cvPixelBuffer: buffer), context: context)
+    }
+
+    /// Detect a uniform border before using Vision, which is intended for photographic subjects.
+    static func removeFlatBackground(_ image: CGImage) -> CGImage? {
+        let width = image.width, height = image.height
+        guard width > 1, height > 1, let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        return bytes.withUnsafeMutableBytes { raw in
+            guard let ctx = CGContext(data: raw.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+            ctx.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            let p = raw.bindMemory(to: UInt8.self)
+            var counts: [UInt32: Int] = [:]
+            for i in 0..<(2 * width + 2 * height) {
+                let x: Int, y: Int
+                if i < width { x = i; y = 0 }
+                else if i < 2 * width { x = i - width; y = height - 1 }
+                else if i < 2 * width + height { x = 0; y = i - 2 * width }
+                else { x = width - 1; y = i - 2 * width - height }
+                let n = (y * width + x) * 4
+                guard p[n + 3] == 255 else { continue }
+                let key = UInt32(p[n]) << 16 | UInt32(p[n + 1]) << 8 | UInt32(p[n + 2])
+                counts[key, default: 0] += 1
+            }
+            guard let dominant = counts.max(by: { $0.value < $1.value }), dominant.value * 100 >= (2 * width + 2 * height) * 90 else { return nil }
+            let bg = [Int((dominant.key >> 16) & 255), Int((dominant.key >> 8) & 255), Int(dominant.key & 255)]
+            for n in stride(from: 0, to: p.count, by: 4) {
+                let oldAlpha = Int(p[n + 3])
+                guard oldAlpha == 255 else { continue }
+                let distance = (0..<3).map { abs(Int(p[n + $0]) - bg[$0]) }.max() ?? 0
+                if distance == 0 { p[n + 3] = 0; p[n] = 0; p[n + 1] = 0; p[n + 2] = 0 }
+                else if distance < 32 {
+                    // Recover the edge color blended against the detected background.
+                    let alpha = distance * 255 / 32
+                    for c in 0..<3 { p[n + c] = UInt8(max(0, min(255, Int(p[n + c]) - bg[c] * (255 - alpha) / 255))) }
+                    p[n + 3] = UInt8(alpha)
+                }
+            }
+            return ctx.makeImage()
+        }
     }
 
     static func transparentPNG(_ image: CIImage, context: CIContext = CIContext()) throws -> Data {

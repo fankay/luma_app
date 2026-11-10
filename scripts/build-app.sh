@@ -6,6 +6,11 @@ bash scripts/build-icon.sh
 mkdir -p build/Luma.app/Contents/MacOS build/Luma.app/Contents/Resources
 cp Assets/AppIcon.icns build/Luma.app/Contents/Resources/AppIcon.icns
 cp LICENSE build/Luma.app/Contents/Resources/LICENSE
+if [[ ! -d build/WatermarkRuntime ]]; then
+  echo '缺少 build/WatermarkRuntime，无法生成包含离线模型的应用。' >&2
+  exit 1
+fi
+ditto build/WatermarkRuntime build/Luma.app/Contents/Resources/WatermarkRuntime
 cp /tmp/luma-release/release/Luma build/Luma.app/Contents/MacOS/Luma
 cat > build/Luma.app/Contents/Info.plist <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -22,4 +27,4 @@ cat > build/Luma.app/Contents/Info.plist <<'PLIST'
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
 PLIST
-codesign --force --sign - build/Luma.app
+codesign --force --deep --sign - build/Luma.app

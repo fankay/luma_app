@@ -12,6 +12,8 @@ struct ImageItem: Identifiable {
     var working = false
     var cutout: Data?
     var cutoutPreview: NSImage?
+    var watermarkResult: Data?
+    var watermarkPreview: NSImage?
 }
 @MainActor final class Workspace: ObservableObject {
     @Published var items: [ImageItem] = []
@@ -32,7 +34,7 @@ struct ImageItem: Identifiable {
     var saved: Int { items.compactMap(\.result).reduce(0) { $0 + $1.originalBytes - $1.outputBytes } }
     var canCopyImage: Bool {
         guard !running, let item = current else { return false }
-        return mode != .removeBackground || item.cutout != nil
+        return mode == .removeBackground ? item.cutout != nil : mode == .removeWatermark ? item.watermarkResult != nil : true
     }
 
     func copyImage() {
@@ -45,7 +47,7 @@ struct ImageItem: Identifiable {
             do {
                 let representations = try await Task.detached(priority: .userInitiated) {
                     try autoreleasepool {
-                        let result = try ImageEngine.render(url: item.url, format: chosenFormat, mode: chosenMode, quality: chosenQuality, preparedCutout: item.cutout)
+                        let result = try ImageEngine.render(url: item.url, format: chosenFormat, mode: chosenMode, quality: chosenQuality, preparedCutout: chosenMode == .removeWatermark ? item.watermarkResult : item.cutout)
                         return try ClipboardImage.representations(from: result.data)
                     }
                 }.value
@@ -98,6 +100,24 @@ struct ImageItem: Identifiable {
         }
         if selected == nil { selected = items.first?.id }
         prepareBackgrounds()
+        prepareWatermarks()
+    }
+    func prepareWatermarks() {
+        guard mode == .removeWatermark, !running, items.contains(where: { $0.watermarkResult == nil }) else { return }
+        running = true; completed = 0
+        Task {
+            for index in items.indices {
+                guard items[index].watermarkResult == nil else { continue }
+                items[index].working = true; items[index].error = nil
+                let url = items[index].url
+                do {
+                    let data = try await Task.detached(priority: .userInitiated) { try WatermarkEngine.remove(url: url) }.value
+                    items[index].watermarkResult = data; items[index].watermarkPreview = Self.thumbnail(data)
+                } catch { items[index].error = error.localizedDescription }
+                items[index].working = false; completed += 1
+            }
+            completed = 0; running = false
+        }
     }
     func prepareBackgrounds() {
         guard mode == .removeBackground, !running, items.contains(where: { $0.cutout == nil }) else { return }
@@ -134,7 +154,7 @@ struct ImageItem: Identifiable {
             for index in items.indices {
                 items[index].working = true; items[index].error = nil; items[index].result = nil
                 let url = items[index].url
-                let cutout = items[index].cutout
+                let cutout = chosenMode == .removeWatermark ? items[index].watermarkResult : items[index].cutout
                 do {
                     let result = try await Task.detached(priority: .userInitiated) {
                         try autoreleasepool { try ImageEngine.process(url: url, folder: folder, format: chosenFormat, mode: chosenMode, quality: chosenQuality, preparedCutout: cutout) }
